@@ -46,8 +46,23 @@ def main():
         # Look for CSV files in raw data directory
         csv_files = list(RAW_DATA_DIR.glob("*.csv"))
         if csv_files:
-            data_file = csv_files[0]
-            print(f"Using found dataset: {data_file}")
+            # Prefer flights.csv if available (main dataset)
+            flights_file = RAW_DATA_DIR / "flights.csv"
+            if flights_file.exists():
+                data_file = flights_file
+                print(f"✅ Using main dataset: {data_file.name}")
+            else:
+                # Show available files and let user choose
+                print("\nAvailable CSV files:")
+                for i, f in enumerate(csv_files, 1):
+                    print(f"  {i}. {f.name}")
+                print(f"\n⚠️  Note: For Flight Delays prediction, use 'flights.csv'")
+                choice = input(f"\nSelect file number (1-{len(csv_files)}) or press Enter for first file: ").strip()
+                if choice.isdigit() and 1 <= int(choice) <= len(csv_files):
+                    data_file = csv_files[int(choice) - 1]
+                else:
+                    data_file = csv_files[0]
+                print(f"Using: {data_file.name}")
         else:
             print("No dataset found. Please provide the path to your dataset.")
             print("Place your dataset in: regression/data/raw/")
@@ -86,6 +101,19 @@ def main():
     # Save processed data
     preprocessor.save_processed_data()
     df_processed = preprocessor.get_processed_data()
+    
+    # Validate that target column exists
+    if target_column not in df_processed.columns:
+        print(f"\n❌ Error: Target column '{target_column}' not found in processed data!")
+        print(f"\nAvailable columns: {list(df_processed.columns)}")
+        print(f"\nData shape: {df_processed.shape}")
+        print("\nPossible issues:")
+        print("1. You may have selected the wrong CSV file")
+        print("2. The target column was removed during preprocessing")
+        print("3. The target column name is different (check spelling/casing)")
+        print("\nFor Flight Delays dataset, use 'flights.csv' (not 'airlines.csv' or 'airports.csv')")
+        print("Common target column names: 'ARRIVAL_DELAY', 'DEPARTURE_DELAY'")
+        return
     
     # ============================================================
     # STEP 4: Feature Engineering
@@ -136,19 +164,19 @@ def main():
     trainer = ModelTrainer(X, y, test_size=0.2, val_size=0.2, random_state=42)
     trainer.split_data()
     
-    # Train baseline models
-    print("\nTraining baseline models...")
-    baseline_results = trainer.train_baseline_models(cv=5)
+    # Train best model (XGBoost - best for regression)
+    print("\nTraining best model (XGBoost)...")
+    model_type = input("Model type (xgboost/lightgbm/random_forest/gradient_boosting) [default: xgboost]: ").strip().lower() or "xgboost"
+    trainer.train_best_model(model_type=model_type, cv=5)
     
     # Hyperparameter tuning
-    tune_model = input("\nTune hyperparameters for best model? (y/n) [default: y]: ").strip().lower()
+    tune_model = input("\nTune hyperparameters? (y/n) [default: y]: ").strip().lower()
     if tune_model != 'n':
         tuning_method = input("Tuning method (grid/random/optuna) [default: optuna]: ").strip() or "optuna"
-        n_iter = int(input("Number of iterations [default: 50]: ").strip() or "50")
+        n_iter = int(input("Number of iterations [default: 30]: ").strip() or "30")
         
-        best_baseline_name = baseline_results.iloc[0]['Model']
         trainer.tune_hyperparameters(
-            best_baseline_name, 
+            trainer.best_model_name, 
             method=tuning_method, 
             n_iter=n_iter
         )

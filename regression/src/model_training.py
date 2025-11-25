@@ -125,9 +125,73 @@ class ModelTrainer:
         }
         return models
     
+    def train_best_model(self, model_type='xgboost', cv=5):
+        """
+        Train the best model for regression (XGBoost by default).
+        
+        Parameters:
+        -----------
+        model_type : str
+            Type of model to train ('xgboost', 'lightgbm', 'random_forest', 'gradient_boosting')
+        cv : int
+            Number of cross-validation folds
+        
+        Returns:
+        --------
+        sklearn model
+            Trained model
+        """
+        if self.X_train is None:
+            self.split_data()
+        
+        print("\n" + "="*60)
+        print("TRAINING BEST MODEL")
+        print("="*60)
+        
+        # Select model based on type
+        model_map = {
+            'xgboost': ('XGBoost', XGBRegressor(random_state=self.random_state)),
+            'lightgbm': ('LightGBM', LGBMRegressor(random_state=self.random_state, verbose=-1)),
+            'random_forest': ('Random Forest', RandomForestRegressor(random_state=self.random_state, n_jobs=-1)),
+            'gradient_boosting': ('Gradient Boosting', GradientBoostingRegressor(random_state=self.random_state))
+        }
+        
+        if model_type.lower() not in model_map:
+            print(f"⚠️  Unknown model type '{model_type}'. Using XGBoost instead.")
+            model_type = 'xgboost'
+        
+        model_name, model = model_map[model_type.lower()]
+        print(f"\nTraining {model_name}...")
+        
+        try:
+            # Train model
+            model.fit(self.X_train, self.y_train)
+            
+            # Cross-validation score (using R²)
+            kf = KFold(n_splits=cv, shuffle=True, random_state=self.random_state)
+            cv_scores = cross_val_score(model, self.X_train, self.y_train, 
+                                      cv=kf, scoring='r2', n_jobs=-1)
+            
+            # Validation score
+            val_score = model.score(self.X_val, self.y_val)
+            
+            self.models[model_name] = model
+            self.best_model = model
+            self.best_model_name = model_name
+            
+            print(f"  ✅ CV R²: {cv_scores.mean():.4f} (+/- {cv_scores.std()*2:.4f})")
+            print(f"  ✅ Validation R²: {val_score:.4f}")
+            
+            return model
+            
+        except Exception as e:
+            print(f"  ❌ Error training {model_name}: {str(e)}")
+            raise
+    
     def train_baseline_models(self, models=None, cv=5):
         """
         Train multiple baseline models and compare performance.
+        (Kept for backward compatibility, but train_best_model is recommended)
         
         Parameters:
         -----------
@@ -222,7 +286,7 @@ class ModelTrainer:
             Best model with tuned hyperparameters
         """
         if model_name not in self.models:
-            raise ValueError(f"Model {model_name} not found. Train baseline models first.")
+            raise ValueError(f"Model {model_name} not found. Train the model first using train_best_model().")
         
         print(f"\n{'='*60}")
         print(f"HYPERPARAMETER TUNING: {model_name}")
@@ -342,6 +406,22 @@ class ModelTrainer:
                     max_depth=trial.suggest_int('max_depth', 3, 10),
                     random_state=self.random_state
                 )
+            elif model_name == 'LightGBM':
+                model = LGBMRegressor(
+                    n_estimators=trial.suggest_int('n_estimators', 50, 300),
+                    learning_rate=trial.suggest_float('learning_rate', 0.01, 0.3),
+                    max_depth=trial.suggest_int('max_depth', 3, 10),
+                    num_leaves=trial.suggest_int('num_leaves', 31, 100),
+                    random_state=self.random_state,
+                    verbose=-1
+                )
+            elif model_name == 'Gradient Boosting':
+                model = GradientBoostingRegressor(
+                    n_estimators=trial.suggest_int('n_estimators', 50, 300),
+                    learning_rate=trial.suggest_float('learning_rate', 0.01, 0.3),
+                    max_depth=trial.suggest_int('max_depth', 3, 10),
+                    random_state=self.random_state
+                )
             else:
                 # Fallback to base model
                 model = self.models[model_name]
@@ -360,6 +440,10 @@ class ModelTrainer:
             best_model = RandomForestRegressor(**best_params, random_state=self.random_state, n_jobs=-1)
         elif model_name == 'XGBoost':
             best_model = XGBRegressor(**best_params, random_state=self.random_state)
+        elif model_name == 'LightGBM':
+            best_model = LGBMRegressor(**best_params, random_state=self.random_state, verbose=-1)
+        elif model_name == 'Gradient Boosting':
+            best_model = GradientBoostingRegressor(**best_params, random_state=self.random_state)
         else:
             best_model = self.models[model_name]
         
