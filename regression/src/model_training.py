@@ -23,6 +23,8 @@ class ModelTrainer:
     Class for training regression models.
     """
     
+    # Updated function
+    
     def __init__(self, X, y, test_size=0.2, val_size=0.2, random_state=42):
         """
         Initialize the model trainer.
@@ -55,6 +57,8 @@ class ModelTrainer:
         self.best_model = None
         self.best_model_name = None
         
+    # Updated function
+        
     def split_data(self):
         """
         Split data into training, validation, and test sets.
@@ -82,6 +86,8 @@ class ModelTrainer:
         # Save splits
         self._save_splits()
     
+    # Updated function
+    
     def _save_splits(self):
         """Save data splits to files."""
         splits = {
@@ -99,6 +105,8 @@ class ModelTrainer:
                 data.to_csv(filepath, index=False)
             else:
                 pd.DataFrame(data).to_csv(filepath, index=False)
+    
+    # Updated function
     
     def get_models(self):
         """
@@ -124,6 +132,8 @@ class ModelTrainer:
             'AdaBoost': AdaBoostRegressor(random_state=self.random_state)
         }
         return models
+    
+    # Updated function
     
     def train_best_model(self, model_type='xgboost', cv=5):
         """
@@ -187,6 +197,8 @@ class ModelTrainer:
         except Exception as e:
             print(f"  ❌ Error training {model_name}: {str(e)}")
             raise
+    
+    # Updated function
     
     def train_baseline_models(self, models=None, cv=5):
         """
@@ -263,6 +275,8 @@ class ModelTrainer:
         
         return results_df
     
+    # Updated function
+    
     def tune_hyperparameters(self, model_name, param_grid=None, method='grid', n_iter=50, cv=5):
         """
         Tune hyperparameters for a specific model.
@@ -337,6 +351,8 @@ class ModelTrainer:
         
         return best_model
     
+    # Updated function
+    
     def _get_default_param_grid(self, model_name):
         """Get default parameter grid for a model."""
         grids = {
@@ -388,8 +404,11 @@ class ModelTrainer:
         }
         return grids.get(model_name, {})
     
+    # Updated function
+    
     def _optuna_tune(self, model_name, param_grid, n_trials=50, cv=5):
         """Use Optuna for hyperparameter tuning."""
+        # Updated function
         def objective(trial):
             if model_name == 'Random Forest':
                 model = RandomForestRegressor(
@@ -452,6 +471,8 @@ class ModelTrainer:
         print(f"Best CV score: {study.best_value:.4f}")
         
         return best_model
+    
+    # Updated function
     
     def save_best_model(self, filename='best_regression_model.pkl'):
         """Save the best model to disk."""
