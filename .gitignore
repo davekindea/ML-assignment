@@ -1,0 +1,75 @@
+# Data files and directories
+data/
+**/data/
+**/data/**/*
+*.csv
+*.pkl
+*.h5
+*.hdf5
+*.parquet
+
+# Model files (but allow models in regression/classification/models/ for deployment)
+# First, allow model files in specific deployment directories
+!regression/models/
+!classification/models/
+!regression/models/**
+!classification/models/**
+# Then exclude all other .pkl files
+*.pkl
+*.joblib
+*.model
+# But re-allow the specific model files we need
+!regression/models/*.pkl
+!classification/models/*.pkl
+# Exclude model files in data directories
+**/data/**/*.pkl
+
+# Results and outputs
+results/
+**/results/
+*.png
+*.jpg
+*.jpeg
+*.pdf
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+temp/
+tmp/
+
+# Large datasets (specific patterns)
+**/raw/**
+**/processed/**
+**/splits/**
+

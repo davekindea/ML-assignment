@@ -27,15 +27,81 @@ st.markdown("Predict flight arrival delays based on flight information")
 @st.cache_resource
 def load_deployment_model():
     try:
+        import joblib
+        
+        # List of possible model file locations to check
+        possible_paths = []
+        
+        # 1. Standard MODELS_DIR path
         model_file = MODELS_DIR / "best_regression_model.pkl"
-        if not model_file.exists():
-            return None, "No model found. Please train a model first."
-
-        model = load_model("best_regression_model.pkl")
-        return model, None
+        possible_paths.append(model_file)
+        
+        # 2. Relative to app.py location
+        app_dir = Path(__file__).parent
+        possible_paths.append(app_dir / "models" / "best_regression_model.pkl")
+        
+        # 3. For Streamlit Cloud deployment (common structure)
+        possible_paths.append(app_dir.parent / "regression" / "models" / "best_regression_model.pkl")
+        
+        # 4. Absolute path from current working directory
+        cwd = Path.cwd()
+        possible_paths.append(cwd / "regression" / "models" / "best_regression_model.pkl")
+        possible_paths.append(cwd / "models" / "best_regression_model.pkl")
+        
+        # Try each path
+        for model_path in possible_paths:
+            if model_path.exists():
+                try:
+                    model = joblib.load(model_path)
+                    return model, None
+                except Exception as e:
+                    continue  # Try next path if loading fails
+        
+        # If none found, try using load_model function as fallback
+        try:
+            model = load_model("best_regression_model.pkl")
+            return model, None
+        except:
+            pass
+        
+        # If still not found, generate error message
+        if True:
+            checked_paths = "\n".join([f"  - `{p}` (exists: {p.exists()})" for p in possible_paths])
+            error_msg = f"""
+            **Model Not Found**
+            
+            The model file `best_regression_model.pkl` was not found in any expected location.
+            
+            **Checked locations:**
+            {checked_paths}
+            
+            **Current paths:**
+            - Working directory: `{Path.cwd()}`
+            - App directory: `{app_dir}`
+            - MODELS_DIR: `{MODELS_DIR}`
+            
+            **To fix this:**
+            
+            1. **For local development:**
+               ```bash
+               cd regression
+               python src/main.py
+               ```
+            
+            2. **For Streamlit Cloud deployment:**
+               - Ensure the model file is committed to your repository
+               - Check that `regression/models/best_regression_model.pkl` exists in your repo
+               - Verify `.gitignore` doesn't exclude it (it may be tracked if added before .gitignore)
+               - If file is too large (>100MB), use Git LFS or host elsewhere
+            
+            3. **Verify the file exists:**
+               - Check your repository on GitHub
+               - Ensure the file path is: `regression/models/best_regression_model.pkl`
+            """
+            return None, error_msg
 
     except Exception as e:
-        return None, f"Error loading model: {str(e)}"
+        return None, f"Error loading model: {str(e)}\n\nPlease ensure the model file exists and is accessible."
 
 @st.cache_resource
 def load_feature_engineer():
@@ -105,6 +171,43 @@ feature_engineer, fe_warning = load_feature_engineer()
 
 if error:
     st.error(error)
+    st.markdown("---")
+    
+    # Debug information
+    with st.expander("🔍 Debug Information"):
+        st.write("**Current working directory:**", Path.cwd())
+        st.write("**App file location:**", Path(__file__).parent)
+        st.write("**MODELS_DIR path:**", MODELS_DIR)
+        st.write("**MODELS_DIR exists:**", MODELS_DIR.exists())
+        if MODELS_DIR.exists():
+            st.write("**Files in MODELS_DIR:**")
+            try:
+                model_files = list(MODELS_DIR.glob("*.pkl"))
+                if model_files:
+                    for f in model_files:
+                        st.write(f"  - {f.name} ({f.stat().st_size / 1024 / 1024:.2f} MB)")
+                else:
+                    st.write("  No .pkl files found")
+            except Exception as e:
+                st.write(f"  Error listing files: {e}")
+    
+    st.info("""
+    **Quick Start Guide:**
+    
+    1. Navigate to the regression directory
+    2. Run the training pipeline: `python src/main.py`
+    3. This will train and save the model to `models/best_regression_model.pkl`
+    4. Then restart this Streamlit app
+    
+    **For Streamlit Cloud deployment:**
+    - Ensure the model file is committed to your repository (check .gitignore)
+    - Model files are typically excluded by .gitignore - you may need to:
+      - Use Git LFS for large files, OR
+      - Host the model elsewhere and download it at runtime
+    
+    For more details, see the README.md file in the regression directory.
+    """)
+    st.stop()
 else:
     st.success("✅ Model loaded successfully!")
     if fe_warning:
