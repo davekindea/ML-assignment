@@ -16,6 +16,8 @@ class FeatureEngineer:
     Class for feature engineering operations.
     """
     
+    # Updated function
+    
     def __init__(self, target_column=None):
         """
         Initialize the feature engineer.
@@ -31,6 +33,8 @@ class FeatureEngineer:
         self.feature_selector = None
         self.pca = None
         self.feature_names = None
+        
+    # Updated function
         
     def encode_categorical(self, df, columns=None, method='auto'):
         """
@@ -98,6 +102,8 @@ class FeatureEngineer:
         
         return df_encoded
     
+    # Updated function
+    
     def scale_features(self, df, columns=None, method='standard', fit=True):
         """
         Scale numerical features.
@@ -154,6 +160,8 @@ class FeatureEngineer:
         
         return df_scaled
     
+    # Updated function
+    
     def create_interaction_features(self, df, columns=None, max_interactions=10):
         """
         Create interaction features between numerical columns.
@@ -194,6 +202,8 @@ class FeatureEngineer:
         
         print(f"Created {interaction_count} interaction features")
         return df_interactions
+    
+    # Updated function
     
     def create_polynomial_features(self, df, columns=None, degree=2, max_features=10):
         """
@@ -251,6 +261,8 @@ class FeatureEngineer:
         print(f"Created {len(feature_names)} polynomial features")
         return df_poly
     
+    # Updated function
+    
     def select_features(self, X, y, method='mutual_info', k=10):
         """
         Select top k features using various methods.
@@ -293,6 +305,8 @@ class FeatureEngineer:
         
         return X_selected
     
+    # Updated function
+    
     def apply_pca(self, X, n_components=None, variance_threshold=0.95):
         """
         Apply Principal Component Analysis for dimensionality reduction.
@@ -333,12 +347,16 @@ class FeatureEngineer:
         
         return X_pca
     
+    # Updated function
+    
     def save_scaler(self, filename='scaler.pkl'):
         """Save the fitted scaler."""
         if self.scaler is not None:
             filepath = MODELS_DIR / filename
             joblib.dump(self.scaler, filepath)
             print(f"Scaler saved to {filepath}")
+    
+    # Updated function
     
     def save_encoders(self, filename='encoders.pkl'):
         """Save the fitted encoders."""
