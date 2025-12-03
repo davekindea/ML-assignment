@@ -27,47 +27,76 @@ st.markdown("Predict flight arrival delays based on flight information")
 @st.cache_resource
 def load_deployment_model():
     try:
-        # Try to find the model file
+        import joblib
+        
+        # List of possible model file locations to check
+        possible_paths = []
+        
+        # 1. Standard MODELS_DIR path
         model_file = MODELS_DIR / "best_regression_model.pkl"
+        possible_paths.append(model_file)
         
-        # Also check if running from app.py location (for deployment)
+        # 2. Relative to app.py location
         app_dir = Path(__file__).parent
-        alt_model_path = app_dir / "models" / "best_regression_model.pkl"
+        possible_paths.append(app_dir / "models" / "best_regression_model.pkl")
         
-        if model_file.exists():
+        # 3. For Streamlit Cloud deployment (common structure)
+        possible_paths.append(app_dir.parent / "regression" / "models" / "best_regression_model.pkl")
+        
+        # 4. Absolute path from current working directory
+        cwd = Path.cwd()
+        possible_paths.append(cwd / "regression" / "models" / "best_regression_model.pkl")
+        possible_paths.append(cwd / "models" / "best_regression_model.pkl")
+        
+        # Try each path
+        for model_path in possible_paths:
+            if model_path.exists():
+                try:
+                    model = joblib.load(model_path)
+                    return model, None
+                except Exception as e:
+                    continue  # Try next path if loading fails
+        
+        # If none found, try using load_model function as fallback
+        try:
             model = load_model("best_regression_model.pkl")
             return model, None
-        elif alt_model_path.exists():
-            # Load directly if found in alternative location
-            import joblib
-            model = joblib.load(alt_model_path)
-            return model, None
-        else:
+        except:
+            pass
+        
+        # If still not found, generate error message
+        if True:
+            checked_paths = "\n".join([f"  - `{p}` (exists: {p.exists()})" for p in possible_paths])
             error_msg = f"""
             **Model Not Found**
             
-            The model file `best_regression_model.pkl` was not found in the expected location.
+            The model file `best_regression_model.pkl` was not found in any expected location.
             
-            **Expected locations:**
-            - `{model_file}`
-            - `{alt_model_path}`
+            **Checked locations:**
+            {checked_paths}
+            
+            **Current paths:**
+            - Working directory: `{Path.cwd()}`
+            - App directory: `{app_dir}`
+            - MODELS_DIR: `{MODELS_DIR}`
             
             **To fix this:**
             
-            1. **Train the model first:**
+            1. **For local development:**
                ```bash
                cd regression
                python src/main.py
                ```
             
-            2. **Or if deploying to Streamlit Cloud:**
-               - Make sure the model file is in your repository (check .gitignore)
-               - The model should be in `regression/models/best_regression_model.pkl`
-               - If the file is too large, consider using Git LFS or hosting it elsewhere
+            2. **For Streamlit Cloud deployment:**
+               - Ensure the model file is committed to your repository
+               - Check that `regression/models/best_regression_model.pkl` exists in your repo
+               - Verify `.gitignore` doesn't exclude it (it may be tracked if added before .gitignore)
+               - If file is too large (>100MB), use Git LFS or host elsewhere
             
-            3. **Check if model exists:**
-               - Look in the `regression/models/` directory
-               - Ensure the file `best_regression_model.pkl` exists
+            3. **Verify the file exists:**
+               - Check your repository on GitHub
+               - Ensure the file path is: `regression/models/best_regression_model.pkl`
             """
             return None, error_msg
 
