@@ -49,23 +49,24 @@ def load_deployment_model():
         possible_paths.append(cwd / "models" / "best_regression_model.pkl")
         
         # Try each path
+        model = None
         for model_path in possible_paths:
             if model_path.exists():
                 try:
                     model = joblib.load(model_path)
-                    return model, None
+                    break
                 except Exception as e:
                     continue  # Try next path if loading fails
         
         # If none found, try using load_model function as fallback
-        try:
-            model = load_model("best_regression_model.pkl")
-            return model, None
-        except:
-            pass
+        if model is None:
+            try:
+                model = load_model("best_regression_model.pkl")
+            except:
+                pass
         
         # If still not found, generate error message
-        if True:
+        if model is None:
             checked_paths = "\n".join([f"  - `{p}` (exists: {p.exists()})" for p in possible_paths])
             error_msg = f"""
             **Model Not Found**
@@ -99,6 +100,9 @@ def load_deployment_model():
                - Ensure the file path is: `regression/models/best_regression_model.pkl`
             """
             return None, error_msg
+        
+        # Model found, return it
+        return model, None
 
     except Exception as e:
         return None, f"Error loading model: {str(e)}\n\nPlease ensure the model file exists and is accessible."
