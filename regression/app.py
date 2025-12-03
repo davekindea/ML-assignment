@@ -9,6 +9,7 @@ import sys
 sys.path.append(str(Path(__file__).parent / "src"))
 from utils import load_model, MODELS_DIR
 from feature_engineering import FeatureEngineer
+from sklearn.preprocessing import LabelEncoder
 
 # Page config
 st.set_page_config(
@@ -50,6 +51,55 @@ def load_feature_engineer():
     except Exception as e:
         return FeatureEngineer(), f"Could not load feature engineer: {str(e)}"
 
+def encode_categorical_for_inference(df, categorical_features, feature_engineer):
+    """
+    Encode categorical features for inference using saved encoders or create new ones.
+    
+    Parameters:
+    -----------
+    df : pd.DataFrame
+        Input dataframe
+    categorical_features : list
+        List of categorical feature names
+    feature_engineer : FeatureEngineer
+        Feature engineer instance with saved encoders (if available)
+    
+    Returns:
+    --------
+    pd.DataFrame
+        DataFrame with encoded categorical features
+    """
+    df_encoded = df.copy()
+    
+    for col in categorical_features:
+        if col not in df_encoded.columns:
+            continue
+        
+        # Check if encoder exists for this column
+        if hasattr(feature_engineer, 'encoders') and col in feature_engineer.encoders:
+            # Use saved encoder for transformation
+            try:
+                le = feature_engineer.encoders[col]
+                # Handle unseen values by assigning them to a default value
+                df_encoded[col] = df_encoded[col].astype(str)
+                # Get all unique values in training data
+                known_classes = set(le.classes_)
+                # Replace unseen values with the first known class
+                df_encoded[col] = df_encoded[col].apply(
+                    lambda x: x if x in known_classes else le.classes_[0]
+                )
+                df_encoded[col] = le.transform(df_encoded[col])
+            except Exception as e:
+                # If transformation fails, create new encoder (fallback)
+                le = LabelEncoder()
+                df_encoded[col] = le.fit_transform(df_encoded[col].astype(str))
+        else:
+            # No saved encoder, create new one (this might cause issues)
+            le = LabelEncoder()
+            df_encoded[col] = le.fit_transform(df_encoded[col].astype(str))
+    
+    return df_encoded
+
 model, error = load_deployment_model()
 feature_engineer, fe_warning = load_feature_engineer()
 
@@ -73,15 +123,88 @@ else:
         'CANCELLATION_REASON_D'
     ]
     
+    # Most important/useful features for user input (available BEFORE departure)
+    KEY_FEATURES = [
+        'MONTH', 'DAY_OF_WEEK', 'AIRLINE', 'ORIGIN_AIRPORT', 'DESTINATION_AIRPORT',
+        'SCHEDULED_DEPARTURE', 'SCHEDULED_TIME', 'DISTANCE'
+    ]
+    
+    # Optional features available AFTER departure (improves prediction accuracy)
+    OPTIONAL_REALTIME_FEATURES = ['DEPARTURE_DELAY']
+    
+    # Common airlines (US major carriers)
+    COMMON_AIRLINES = [
+        'AA', 'DL', 'UA', 'WN', 'AS', 'B6', 'F9', 'NK', 'G4', 'SY'
+    ]
+    
+    # Common US airports (major hubs)
+    COMMON_AIRPORTS = [
+        'ATL', 'LAX', 'ORD', 'DFW', 'DEN', 'JFK', 'SFO', 'SEA', 'LAS', 'MIA',
+        'CLT', 'PHX', 'EWR', 'MCO', 'MSP', 'DTW', 'PHL', 'LGA', 'BWI', 'BOS',
+        'IAD', 'SLC', 'MDW', 'DCA', 'HNL', 'PDX', 'STL', 'MCI', 'AUS', 'SAN'
+    ]
+    
     # Categorical features that need special handling
     CATEGORICAL_FEATURES = ['AIRLINE', 'TAIL_NUMBER', 'ORIGIN_AIRPORT', 'DESTINATION_AIRPORT']
     
     # Numeric features
     NUMERIC_FEATURES = [f for f in FEATURE_COLUMNS if f not in CATEGORICAL_FEATURES]
+    
+    def get_default_values():
+        """Get default values for all features."""
+        from datetime import datetime
+        now = datetime.now()
+        
+        return {
+            'YEAR': now.year,
+            'MONTH': now.month,
+            'DAY': now.day,
+            'DAY_OF_WEEK': now.weekday() + 1,  # 1-7
+            'AIRLINE': 'AA',
+            'FLIGHT_NUMBER': 100,
+            'TAIL_NUMBER': 'N12345',
+            'ORIGIN_AIRPORT': 'JFK',
+            'DESTINATION_AIRPORT': 'LAX',
+            'SCHEDULED_DEPARTURE': 800,
+            'DEPARTURE_TIME': 800,
+            'DEPARTURE_DELAY': 0,
+            'TAXI_OUT': 15,
+            'WHEELS_OFF': 815,
+            'SCHEDULED_TIME': 300,
+            'ELAPSED_TIME': 300,
+            'AIR_TIME': 280,
+            'DISTANCE': 2500,
+            'WHEELS_ON': 1190,
+            'TAXI_IN': 10,
+            'SCHEDULED_ARRIVAL': 1200,
+            'ARRIVAL_TIME': 1200,
+            'DIVERTED': 0,
+            'CANCELLED': 0,
+            'AIR_SYSTEM_DELAY': 0,
+            'SECURITY_DELAY': 0,
+            'AIRLINE_DELAY': 0,
+            'LATE_AIRCRAFT_DELAY': 0,
+            'WEATHER_DELAY': 0,
+            'CANCELLATION_REASON_B': 0,
+            'CANCELLATION_REASON_C': 0,
+            'CANCELLATION_REASON_D': 0
+        }
 
     # Sidebar
     st.sidebar.header("📊 Model Information")
     st.sidebar.info("This model predicts flight arrival delays (in minutes) based on flight information.")
+    
+    with st.sidebar.expander("ℹ️ About DEPARTURE_DELAY"):
+        st.markdown("""
+        **Why is DEPARTURE_DELAY used?**
+        
+        - **Strong Predictor**: If a flight departs late, it's very likely to arrive late
+        - **Use Case**: Best for real-time predictions AFTER the flight has departed
+        - **Before Departure**: Set to 0 if predicting before departure
+        - **After Departure**: Enter actual delay for more accurate predictions
+        
+        The model was trained with this feature because it significantly improves prediction accuracy for in-flight predictions.
+        """)
 
     tab1, tab2 = st.tabs(["🔮 Single Prediction", "📁 Batch Prediction"])
 
@@ -90,81 +213,116 @@ else:
     # -----------------------------
     with tab1:
         st.header("Single Prediction")
-        st.markdown("Enter flight information to predict arrival delay:")
+        st.markdown("Enter the most important flight information to predict arrival delay:")
+        st.info("💡 Only the most impactful features are shown. Other features use smart defaults.")
 
-        input_values = {}
+        # Initialize with defaults
+        defaults = get_default_values()
+        input_values = defaults.copy()
 
-        # Organize inputs into logical groups
-        st.subheader("📅 Date & Time Information")
-        col1, col2, col3, col4 = st.columns(4)
+        # Get user inputs for key features only
+        st.subheader("📅 Date & Time")
+        col1, col2 = st.columns(2)
         with col1:
-            input_values['YEAR'] = st.number_input("YEAR", min_value=2015, max_value=2030, value=2023, step=1)
+            month = st.number_input("MONTH (1-12)", min_value=1, max_value=12, value=defaults['MONTH'], step=1, key='month_input')
+            input_values['MONTH'] = month
         with col2:
-            input_values['MONTH'] = st.number_input("MONTH", min_value=1, max_value=12, value=1, step=1)
-        with col3:
-            input_values['DAY'] = st.number_input("DAY", min_value=1, max_value=31, value=1, step=1)
-        with col4:
-            input_values['DAY_OF_WEEK'] = st.number_input("DAY_OF_WEEK", min_value=1, max_value=7, value=1, step=1)
+            day_of_week = st.selectbox("DAY OF WEEK", 
+                options=[(1, "Monday"), (2, "Tuesday"), (3, "Wednesday"), (4, "Thursday"), 
+                        (5, "Friday"), (6, "Saturday"), (7, "Sunday")],
+                format_func=lambda x: x[1],
+                index=defaults['DAY_OF_WEEK'] - 1,
+                key='dow_input')
+            input_values['DAY_OF_WEEK'] = day_of_week[0]
 
-        st.subheader("✈️ Flight Information")
+        st.subheader("✈️ Flight Route")
+        col1, col2 = st.columns(2)
+        with col1:
+            # Airline dropdown
+            airline_options = COMMON_AIRLINES + ['Other (Enter Code)']
+            airline_index = COMMON_AIRLINES.index(defaults['AIRLINE']) if defaults['AIRLINE'] in COMMON_AIRLINES else 0
+            airline_selection = st.selectbox("AIRLINE", options=airline_options, index=airline_index, key='airline_input')
+            
+            if airline_selection == 'Other (Enter Code)':
+                airline_custom = st.text_input("Enter Airline Code", value="", key='airline_custom_input', max_chars=3)
+                input_values['AIRLINE'] = airline_custom.upper() if airline_custom else defaults['AIRLINE']
+            else:
+                input_values['AIRLINE'] = airline_selection
+            
+            # Origin airport dropdown
+            origin_options = COMMON_AIRPORTS + ['Other (Enter Code)']
+            origin_index = COMMON_AIRPORTS.index(defaults['ORIGIN_AIRPORT']) if defaults['ORIGIN_AIRPORT'] in COMMON_AIRPORTS else 0
+            origin_selection = st.selectbox("ORIGIN AIRPORT", options=origin_options, index=origin_index, key='origin_input')
+            
+            if origin_selection == 'Other (Enter Code)':
+                origin_custom = st.text_input("Enter Origin Airport Code", value="", key='origin_custom_input', max_chars=3)
+                input_values['ORIGIN_AIRPORT'] = origin_custom.upper() if origin_custom else defaults['ORIGIN_AIRPORT']
+            else:
+                input_values['ORIGIN_AIRPORT'] = origin_selection
+        
+        with col2:
+            # Destination airport dropdown
+            dest_options = COMMON_AIRPORTS + ['Other (Enter Code)']
+            dest_index = COMMON_AIRPORTS.index(defaults['DESTINATION_AIRPORT']) if defaults['DESTINATION_AIRPORT'] in COMMON_AIRPORTS else COMMON_AIRPORTS.index('LAX') if 'LAX' in COMMON_AIRPORTS else 0
+            dest_selection = st.selectbox("DESTINATION AIRPORT", options=dest_options, index=dest_index, key='dest_input')
+            
+            if dest_selection == 'Other (Enter Code)':
+                dest_custom = st.text_input("Enter Destination Airport Code", value="", key='dest_custom_input', max_chars=3)
+                input_values['DESTINATION_AIRPORT'] = dest_custom.upper() if dest_custom else defaults['DESTINATION_AIRPORT']
+            else:
+                input_values['DESTINATION_AIRPORT'] = dest_selection
+
+        st.subheader("🕐 Schedule Information")
         col1, col2, col3 = st.columns(3)
         with col1:
-            input_values['AIRLINE'] = st.text_input("AIRLINE", value="AA")
-            input_values['FLIGHT_NUMBER'] = st.number_input("FLIGHT_NUMBER", min_value=1, value=100, step=1)
+            scheduled_dep = st.number_input("SCHEDULED DEPARTURE TIME (HHMM, e.g., 800 for 8:00 AM)", 
+                min_value=0, max_value=2359, value=defaults['SCHEDULED_DEPARTURE'], step=1, key='sched_dep_input')
+            input_values['SCHEDULED_DEPARTURE'] = scheduled_dep
         with col2:
-            input_values['ORIGIN_AIRPORT'] = st.text_input("ORIGIN_AIRPORT", value="JFK")
-            input_values['DESTINATION_AIRPORT'] = st.text_input("DESTINATION_AIRPORT", value="LAX")
+            scheduled_time = st.number_input("SCHEDULED FLIGHT TIME (minutes)", 
+                min_value=0, value=defaults['SCHEDULED_TIME'], step=1, key='sched_time_input')
+            input_values['SCHEDULED_TIME'] = scheduled_time
         with col3:
-            input_values['TAIL_NUMBER'] = st.text_input("TAIL_NUMBER", value="N12345")
+            distance = st.number_input("DISTANCE (miles)", 
+                min_value=0, value=defaults['DISTANCE'], step=1, key='distance_input')
+            input_values['DISTANCE'] = distance
 
-        st.subheader("🕐 Schedule & Timing")
-        col1, col2 = st.columns(2)
-        with col1:
-            input_values['SCHEDULED_DEPARTURE'] = st.number_input("SCHEDULED_DEPARTURE", min_value=0, max_value=2359, value=800, step=1)
-            input_values['DEPARTURE_TIME'] = st.number_input("DEPARTURE_TIME", min_value=0, max_value=2359, value=800, step=1)
-            input_values['SCHEDULED_ARRIVAL'] = st.number_input("SCHEDULED_ARRIVAL", min_value=0, max_value=2359, value=1200, step=1)
-            input_values['ARRIVAL_TIME'] = st.number_input("ARRIVAL_TIME", min_value=0, max_value=2359, value=1200, step=1)
-        with col2:
-            input_values['SCHEDULED_TIME'] = st.number_input("SCHEDULED_TIME (minutes)", min_value=0, value=300, step=1)
-            input_values['ELAPSED_TIME'] = st.number_input("ELAPSED_TIME (minutes)", min_value=0, value=300, step=1)
-            input_values['AIR_TIME'] = st.number_input("AIR_TIME (minutes)", min_value=0, value=280, step=1)
+        # Show real-time status in expander (only available after departure)
+        with st.expander("⏱️ Real-Time Status (Optional - Available After Departure)", expanded=False):
+            st.info("💡 **When to use:** If the flight has already departed and you know the current departure delay, enter it here for more accurate predictions.")
+            st.markdown("""
+            **Why this helps:**
+            - If a flight departs late, it's very likely to arrive late
+            - This is one of the strongest predictors of arrival delay
+            - **Leave as 0 if predicting before departure**
+            """)
+            departure_delay = st.number_input("CURRENT DEPARTURE DELAY (minutes)", 
+                value=defaults['DEPARTURE_DELAY'], step=1, key='dep_delay_input',
+                help="Enter 0 if flight hasn't departed yet, or the actual delay if it has already departed")
+            input_values['DEPARTURE_DELAY'] = departure_delay
 
-        st.subheader("⏱️ Delays & Taxi Times")
-        col1, col2 = st.columns(2)
-        with col1:
-            input_values['DEPARTURE_DELAY'] = st.number_input("DEPARTURE_DELAY (minutes)", value=0, step=1)
-            input_values['TAXI_OUT'] = st.number_input("TAXI_OUT (minutes)", min_value=0, value=15, step=1)
-            input_values['TAXI_IN'] = st.number_input("TAXI_IN (minutes)", min_value=0, value=10, step=1)
-        with col2:
-            input_values['WHEELS_OFF'] = st.number_input("WHEELS_OFF", min_value=0, max_value=2359, value=815, step=1)
-            input_values['WHEELS_ON'] = st.number_input("WHEELS_ON", min_value=0, max_value=2359, value=1190, step=1)
-
-        st.subheader("📏 Distance")
-        input_values['DISTANCE'] = st.number_input("DISTANCE (miles)", min_value=0, value=2500, step=1)
-
-        st.subheader("⚠️ Status & Delays")
-        col1, col2 = st.columns(2)
-        with col1:
-            input_values['DIVERTED'] = st.selectbox("DIVERTED", [0, 1], index=0)
-            input_values['CANCELLED'] = st.selectbox("CANCELLED", [0, 1], index=0)
-        with col2:
-            input_values['AIR_SYSTEM_DELAY'] = st.number_input("AIR_SYSTEM_DELAY (minutes)", min_value=0, value=0, step=1)
-            input_values['SECURITY_DELAY'] = st.number_input("SECURITY_DELAY (minutes)", min_value=0, value=0, step=1)
-            input_values['AIRLINE_DELAY'] = st.number_input("AIRLINE_DELAY (minutes)", min_value=0, value=0, step=1)
-            input_values['LATE_AIRCRAFT_DELAY'] = st.number_input("LATE_AIRCRAFT_DELAY (minutes)", min_value=0, value=0, step=1)
-            input_values['WEATHER_DELAY'] = st.number_input("WEATHER_DELAY (minutes)", min_value=0, value=0, step=1)
-
-        st.subheader("🚫 Cancellation Reasons")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            input_values['CANCELLATION_REASON_B'] = st.selectbox("CANCELLATION_REASON_B", [0, 1], index=0)
-        with col2:
-            input_values['CANCELLATION_REASON_C'] = st.selectbox("CANCELLATION_REASON_C", [0, 1], index=0)
-        with col3:
-            input_values['CANCELLATION_REASON_D'] = st.selectbox("CANCELLATION_REASON_D", [0, 1], index=0)
+        # Show advanced options in expander
+        with st.expander("⚙️ Advanced Options (Optional)"):
+            st.markdown("These features use default values but can be customized:")
+            col1, col2 = st.columns(2)
+            with col1:
+                input_values['YEAR'] = st.number_input("YEAR", min_value=2015, max_value=2030, value=defaults['YEAR'], step=1)
+                input_values['DAY'] = st.number_input("DAY", min_value=1, max_value=31, value=defaults['DAY'], step=1)
+                input_values['FLIGHT_NUMBER'] = st.number_input("FLIGHT_NUMBER", min_value=1, value=defaults['FLIGHT_NUMBER'], step=1)
+                input_values['TAIL_NUMBER'] = st.text_input("TAIL_NUMBER", value=defaults['TAIL_NUMBER'])
+            with col2:
+                input_values['DIVERTED'] = st.selectbox("DIVERTED", [0, 1], index=0)
+                input_values['CANCELLED'] = st.selectbox("CANCELLED", [0, 1], index=0)
+            
+            st.markdown("**Note:** Other operational features (taxi times, wheels off/on, etc.) are calculated automatically.")
 
         if st.button("🔮 Predict Arrival Delay", type="primary"):
             try:
+                # Ensure all required features are present with defaults
+                for feature in FEATURE_COLUMNS:
+                    if feature not in input_values:
+                        input_values[feature] = defaults.get(feature, 0)
+                
                 # Create DataFrame with features in the EXACT order expected by the model
                 input_df = pd.DataFrame([input_values])[FEATURE_COLUMNS]
                 
@@ -172,17 +330,21 @@ else:
                 for col in NUMERIC_FEATURES:
                     input_df[col] = pd.to_numeric(input_df[col], errors='coerce')
                 
+                # Encode categorical features FIRST (before scaling)
+                input_df = encode_categorical_for_inference(input_df, CATEGORICAL_FEATURES, feature_engineer)
+                
+                # Ensure all columns are numeric (convert any remaining object columns)
+                for col in input_df.columns:
+                    if input_df[col].dtype == 'object':
+                        input_df[col] = pd.to_numeric(input_df[col], errors='coerce')
+                
                 # Apply feature engineering (same as training)
                 try:
-                    # Encode categorical variables if feature engineer was saved with encoder
-                    if hasattr(feature_engineer, 'label_encoders') and feature_engineer.label_encoders:
-                        input_df = feature_engineer.encode_categorical(input_df, method='label')
-                    
                     # Scale features if scaler was saved
                     if hasattr(feature_engineer, 'scaler') and feature_engineer.scaler:
                         input_df = feature_engineer.scale_features(input_df, method='standard', fit=False)
                 except Exception as fe_error:
-                    st.warning(f"Feature engineering warning: {str(fe_error)}. Using raw features.")
+                    st.warning(f"Feature scaling warning: {str(fe_error)}. Using unscaled features.")
 
                 # Make prediction
                 prediction = model.predict(input_df)[0]
@@ -213,11 +375,15 @@ else:
     with tab2:
         st.header("Batch Prediction")
         st.markdown("Upload a CSV file with flight data to get predictions for multiple flights:")
-        st.info("The CSV file should contain all the required features. See the feature list below.")
+        st.info("💡 **Minimum Required:** Your CSV should include the key features. Missing features will use defaults.")
         
-        with st.expander("📋 Required Features"):
-            st.write("Your CSV file must include these columns (in any order):")
-            st.code(", ".join(FEATURE_COLUMNS))
+        with st.expander("📋 Key Features (Required)"):
+            st.write("**At minimum, include these columns (available before departure):**")
+            st.code(", ".join(KEY_FEATURES))
+            st.write("\n**Optional Real-Time Features (available after departure):**")
+            st.code(", ".join(OPTIONAL_REALTIME_FEATURES))
+            st.write("💡 **Note:** DEPARTURE_DELAY is optional but highly recommended if available (significantly improves accuracy)")
+            st.write("\n**All Features:** " + ", ".join(FEATURE_COLUMNS))
 
         uploaded_file = st.file_uploader("Upload CSV file", type="csv")
 
@@ -227,16 +393,30 @@ else:
                 st.subheader("Uploaded Data Preview:")
                 st.dataframe(df.head())
 
-                missing_cols = [c for c in FEATURE_COLUMNS if c not in df.columns]
+                # Check for key features
+                missing_key_cols = [c for c in KEY_FEATURES if c not in df.columns]
+                missing_realtime_cols = [c for c in OPTIONAL_REALTIME_FEATURES if c not in df.columns]
+                missing_all_cols = [c for c in FEATURE_COLUMNS if c not in df.columns]
 
-                if missing_cols:
-                    st.error(f"❌ Missing required columns: {missing_cols}")
+                if missing_key_cols:
+                    st.error(f"❌ Missing key required columns: {missing_key_cols}")
                     st.info(f"Available columns: {', '.join(df.columns)}")
                 else:
-                    st.success(f"✅ All required features present ({len(FEATURE_COLUMNS)} features)")
+                    if missing_realtime_cols:
+                        st.info(f"💡 **Tip:** Consider including DEPARTURE_DELAY for more accurate predictions (if available)")
+                    if missing_all_cols:
+                        st.warning(f"⚠️ Some optional features missing ({len(missing_all_cols)}). Using defaults for: {', '.join(missing_all_cols[:5])}{'...' if len(missing_all_cols) > 5 else ''}")
+                    else:
+                        st.success(f"✅ All features present ({len(FEATURE_COLUMNS)} features)")
                     
                     if st.button("🔮 Predict Batch", type="primary"):
                         try:
+                            # Fill missing columns with defaults
+                            defaults = get_default_values()
+                            for col in FEATURE_COLUMNS:
+                                if col not in df.columns:
+                                    df[col] = defaults.get(col, 0)
+                            
                             # Ensure columns are in the correct order
                             df_processed = df[FEATURE_COLUMNS].copy()
                             
@@ -244,22 +424,28 @@ else:
                             for col in NUMERIC_FEATURES:
                                 df_processed[col] = pd.to_numeric(df_processed[col], errors='coerce')
                             
-                            # Apply feature engineering
+                            # Encode categorical features FIRST (before scaling)
+                            df_processed = encode_categorical_for_inference(df_processed, CATEGORICAL_FEATURES, feature_engineer)
+                            
+                            # Ensure all columns are numeric (convert any remaining object columns)
+                            for col in df_processed.columns:
+                                if df_processed[col].dtype == 'object':
+                                    df_processed[col] = pd.to_numeric(df_processed[col], errors='coerce')
+                            
+                            # Apply feature engineering (same as training)
                             try:
-                                if hasattr(feature_engineer, 'label_encoders') and feature_engineer.label_encoders:
-                                    df_processed = feature_engineer.encode_categorical(df_processed, method='label')
-                                
+                                # Scale features if scaler was saved
                                 if hasattr(feature_engineer, 'scaler') and feature_engineer.scaler:
                                     df_processed = feature_engineer.scale_features(df_processed, method='standard', fit=False)
                             except Exception as fe_error:
-                                st.warning(f"Feature engineering warning: {str(fe_error)}. Using raw features.")
+                                st.warning(f"Feature scaling warning: {str(fe_error)}. Using unscaled features.")
                             
                             predictions = model.predict(df_processed)
                             df["Predicted_Arrival_Delay"] = predictions
 
                             st.subheader("Predictions:")
                             # Show key columns plus prediction
-                            display_cols = ['AIRLINE', 'FLIGHT_NUMBER', 'ORIGIN_AIRPORT', 'DESTINATION_AIRPORT', 'Predicted_Arrival_Delay']
+                            display_cols = ['AIRLINE', 'ORIGIN_AIRPORT', 'DESTINATION_AIRPORT', 'MONTH', 'DAY_OF_WEEK', 'DEPARTURE_DELAY', 'Predicted_Arrival_Delay']
                             available_display_cols = [c for c in display_cols if c in df.columns]
                             st.dataframe(df[available_display_cols])
                             
