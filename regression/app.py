@@ -188,18 +188,6 @@ if model_error or model is None:
 # Main app - Model loaded successfully
 st.success("✅ Model Ready")
 
-# Most important features only
-KEY_FEATURES = {
-    'AIRLINE': {'type': 'string', 'label': 'Airline Code', 'default': 'AA'},
-    'ORIGIN_AIRPORT': {'type': 'string', 'label': 'Origin Airport', 'default': 'JFK'},
-    'DESTINATION_AIRPORT': {'type': 'string', 'label': 'Destination Airport', 'default': 'LAX'},
-    'MONTH': {'type': 'number', 'label': 'Month', 'default': datetime.now().month, 'min': 1, 'max': 12},
-    'DAY_OF_WEEK': {'type': 'number', 'label': 'Day of Week (1=Mon, 7=Sun)', 'default': datetime.now().weekday() + 1, 'min': 1, 'max': 7},
-    'SCHEDULED_DEPARTURE': {'type': 'number', 'label': 'Scheduled Departure (HHMM)', 'default': 800, 'min': 0, 'max': 2359},
-    'DISTANCE': {'type': 'number', 'label': 'Distance (miles)', 'default': 2500, 'min': 0},
-    'DEPARTURE_DELAY': {'type': 'number', 'label': 'Current Departure Delay (minutes)', 'default': 0, 'min': -60, 'max': 300}
-}
-
 # All required features for model (with defaults)
 FEATURE_COLUMNS = [
     'YEAR', 'MONTH', 'DAY', 'DAY_OF_WEEK', 'AIRLINE', 'FLIGHT_NUMBER', 'TAIL_NUMBER',
@@ -255,7 +243,7 @@ def get_defaults():
 st.markdown("<h1>✈️ Flight Delays Prediction</h1>", unsafe_allow_html=True)
 st.markdown("<p style='font-size: 1.1rem; color: #666; text-align: center; margin-bottom: 2rem;'>Enter flight details to predict arrival delay</p>", unsafe_allow_html=True)
 
-# Input form with modern design
+# Input form with modern design - ALL ORIGINAL FEATURES
 with st.container():
     defaults = get_defaults()
     input_values = defaults.copy()
@@ -268,12 +256,11 @@ with st.container():
         'IAD', 'SLC', 'MDW', 'DCA', 'HNL', 'PDX', 'STL', 'MCI', 'AUS', 'SAN'
     ]
     
-    # Key features input
-    col1, col2 = st.columns(2)
+    # Organize features into logical groups
+    st.markdown("### 📋 Flight Information")
+    col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.markdown("### 🛫 Flight Information")
-        
         # Airline dropdown
         airline_options = COMMON_AIRLINES + ['Other (Enter Code)']
         airline_index = COMMON_AIRLINES.index(defaults['AIRLINE']) if defaults['AIRLINE'] in COMMON_AIRLINES else 0
@@ -285,6 +272,12 @@ with st.container():
         else:
             input_values['AIRLINE'] = airline_selection
         
+        input_values['FLIGHT_NUMBER'] = st.number_input("**Flight Number**", min_value=1, value=int(defaults['FLIGHT_NUMBER']), step=1)
+        
+        tail_custom = st.text_input("**Tail Number**", value=defaults['TAIL_NUMBER'], max_chars=10, help="Aircraft tail number")
+        input_values['TAIL_NUMBER'] = tail_custom.upper() if tail_custom else defaults['TAIL_NUMBER']
+    
+    with col2:
         # Origin airport dropdown
         origin_options = COMMON_AIRPORTS + ['Other (Enter Code)']
         origin_index = COMMON_AIRPORTS.index(defaults['ORIGIN_AIRPORT']) if defaults['ORIGIN_AIRPORT'] in COMMON_AIRPORTS else 0
@@ -306,25 +299,78 @@ with st.container():
             input_values['DESTINATION_AIRPORT'] = dest_custom.upper() if dest_custom else defaults['DESTINATION_AIRPORT']
         else:
             input_values['DESTINATION_AIRPORT'] = dest_selection
+        
+        input_values['DISTANCE'] = st.number_input("**Distance** (miles)", min_value=0, value=int(defaults['DISTANCE']), step=1)
+    
+    with col3:
+        input_values['YEAR'] = st.number_input("**Year**", min_value=2000, max_value=2100, value=int(defaults['YEAR']), step=1)
+        input_values['MONTH'] = st.number_input("**Month**", min_value=1, max_value=12, value=int(defaults['MONTH']), step=1)
+        input_values['DAY'] = st.number_input("**Day**", min_value=1, max_value=31, value=int(defaults['DAY']), step=1)
+        input_values['DAY_OF_WEEK'] = st.number_input("**Day of Week** (1=Mon, 7=Sun)", min_value=1, max_value=7, value=int(defaults['DAY_OF_WEEK']), step=1)
+    
+    st.markdown("---")
+    st.markdown("### ⏰ Schedule & Departure Times")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        input_values['SCHEDULED_DEPARTURE'] = st.number_input("**Scheduled Departure** (HHMM)", min_value=0, max_value=2359, value=int(defaults['SCHEDULED_DEPARTURE']), step=1)
+        input_values['DEPARTURE_TIME'] = st.number_input("**Actual Departure Time** (HHMM)", min_value=0, max_value=2359, value=int(defaults['DEPARTURE_TIME']), step=1)
+        input_values['DEPARTURE_DELAY'] = st.number_input("**Departure Delay** (minutes)", value=int(defaults['DEPARTURE_DELAY']), step=1, help="Negative = early, Positive = late")
     
     with col2:
-        st.markdown("### 📅 Schedule & Timing")
-        month = st.number_input("**Month**", min_value=1, max_value=12, value=defaults['MONTH'], step=1)
-        input_values['MONTH'] = month
-        
-        day_of_week = st.number_input("**Day of Week** (1=Monday, 7=Sunday)", min_value=1, max_value=7, value=defaults['DAY_OF_WEEK'], step=1)
-        input_values['DAY_OF_WEEK'] = day_of_week
-        
-        scheduled_dep = st.number_input("**Scheduled Departure** (HHMM)", min_value=0, max_value=2359, value=defaults['SCHEDULED_DEPARTURE'], step=1)
-        input_values['SCHEDULED_DEPARTURE'] = scheduled_dep
-        
-        distance = st.number_input("**Distance** (miles)", min_value=0, value=defaults['DISTANCE'], step=1)
-        input_values['DISTANCE'] = distance
+        input_values['TAXI_OUT'] = st.number_input("**Taxi Out** (minutes)", min_value=0, value=int(defaults['TAXI_OUT']), step=1)
+        input_values['WHEELS_OFF'] = st.number_input("**Wheels Off** (HHMM)", min_value=0, max_value=2359, value=int(defaults['WHEELS_OFF']), step=1)
+        input_values['SCHEDULED_TIME'] = st.number_input("**Scheduled Time** (minutes)", min_value=0, value=int(defaults['SCHEDULED_TIME']), step=1)
     
-    st.markdown("### ⏱️ Current Status")
-    departure_delay = st.number_input("**Current Departure Delay** (minutes)", value=defaults['DEPARTURE_DELAY'], step=1, 
-                                     help="Enter 0 if flight hasn't departed yet")
-    input_values['DEPARTURE_DELAY'] = departure_delay
+    with col3:
+        input_values['ELAPSED_TIME'] = st.number_input("**Elapsed Time** (minutes)", min_value=0, value=int(defaults['ELAPSED_TIME']), step=1)
+        input_values['AIR_TIME'] = st.number_input("**Air Time** (minutes)", min_value=0, value=int(defaults['AIR_TIME']), step=1)
+    
+    st.markdown("---")
+    st.markdown("### 🛬 Arrival Times")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        input_values['WHEELS_ON'] = st.number_input("**Wheels On** (HHMM)", min_value=0, max_value=2359, value=int(defaults['WHEELS_ON']), step=1)
+        input_values['TAXI_IN'] = st.number_input("**Taxi In** (minutes)", min_value=0, value=int(defaults['TAXI_IN']), step=1)
+    
+    with col2:
+        input_values['SCHEDULED_ARRIVAL'] = st.number_input("**Scheduled Arrival** (HHMM)", min_value=0, max_value=2359, value=int(defaults['SCHEDULED_ARRIVAL']), step=1)
+        input_values['ARRIVAL_TIME'] = st.number_input("**Actual Arrival Time** (HHMM)", min_value=0, max_value=2359, value=int(defaults['ARRIVAL_TIME']), step=1)
+    
+    st.markdown("---")
+    st.markdown("### 🚫 Flight Status")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        input_values['DIVERTED'] = st.selectbox("**Diverted**", options=[0, 1], format_func=lambda x: "No" if x == 0 else "Yes", index=0)
+        input_values['CANCELLED'] = st.selectbox("**Cancelled**", options=[0, 1], format_func=lambda x: "No" if x == 0 else "Yes", index=0)
+    
+    st.markdown("---")
+    st.markdown("### ⚠️ Delay Reasons (minutes)")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        input_values['AIR_SYSTEM_DELAY'] = st.number_input("**Air System Delay**", min_value=0, value=int(defaults['AIR_SYSTEM_DELAY']), step=1)
+        input_values['SECURITY_DELAY'] = st.number_input("**Security Delay**", min_value=0, value=int(defaults['SECURITY_DELAY']), step=1)
+    
+    with col2:
+        input_values['AIRLINE_DELAY'] = st.number_input("**Airline Delay**", min_value=0, value=int(defaults['AIRLINE_DELAY']), step=1)
+        input_values['LATE_AIRCRAFT_DELAY'] = st.number_input("**Late Aircraft Delay**", min_value=0, value=int(defaults['LATE_AIRCRAFT_DELAY']), step=1)
+    
+    with col3:
+        input_values['WEATHER_DELAY'] = st.number_input("**Weather Delay**", min_value=0, value=int(defaults['WEATHER_DELAY']), step=1)
+    
+    st.markdown("---")
+    st.markdown("### 📝 Cancellation Reasons")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        input_values['CANCELLATION_REASON_B'] = st.selectbox("**Cancellation Reason B**", options=[0, 1], format_func=lambda x: "No" if x == 0 else "Yes", index=0)
+    with col2:
+        input_values['CANCELLATION_REASON_C'] = st.selectbox("**Cancellation Reason C**", options=[0, 1], format_func=lambda x: "No" if x == 0 else "Yes", index=0)
+    with col3:
+        input_values['CANCELLATION_REASON_D'] = st.selectbox("**Cancellation Reason D**", options=[0, 1], format_func=lambda x: "No" if x == 0 else "Yes", index=0)
     
     if st.button("🔮 Predict Arrival Delay", type="primary", use_container_width=True):
         try:
@@ -333,8 +379,27 @@ with st.container():
                 if feature not in input_values:
                     input_values[feature] = defaults.get(feature, 0)
             
-            # Create DataFrame
-            input_df = pd.DataFrame([input_values])[FEATURE_COLUMNS]
+            # Get expected features from model first
+            if hasattr(model, 'feature_names_in_'):
+                # Convert expected features to strings (handle numpy string types)
+                expected_features = [str(f) for f in model.feature_names_in_]
+            else:
+                expected_features = FEATURE_COLUMNS
+            
+            # If model expects ARRIVAL_DELAY (target variable), add it with default 0
+            if 'ARRIVAL_DELAY' in expected_features and 'ARRIVAL_DELAY' not in input_values:
+                input_values['ARRIVAL_DELAY'] = 0
+            
+            # Add any other missing expected features
+            for feat in expected_features:
+                if feat not in input_values:
+                    input_values[feat] = 0
+            
+            # Create DataFrame with all input values
+            input_df = pd.DataFrame([input_values])
+            
+            # Select only expected features (in correct order)
+            input_df = input_df[[f for f in expected_features if f in input_df.columns]]
             
             # Encode categorical strings to numeric
             for col in CATEGORICAL_FEATURES:
@@ -345,12 +410,28 @@ with st.container():
             for col in input_df.columns:
                 input_df[col] = pd.to_numeric(input_df[col], errors='coerce')
             
-            # Apply scaling if available
+            # Apply feature engineering (same as training)
+            # Encode categorical
+            input_df = feature_engineer.encode_categorical(input_df, method='auto')
+            
+            # Scale features if available
             if hasattr(feature_engineer, 'scaler') and feature_engineer.scaler:
                 try:
                     input_df = feature_engineer.scale_features(input_df, method='standard', fit=False)
                 except:
                     pass
+            
+            # Final check: ensure all expected features are present after feature engineering
+            if hasattr(model, 'feature_names_in_'):
+                missing_features = [f for f in expected_features if f not in input_df.columns]
+                
+                if missing_features:
+                    # Add missing features with default 0
+                    for feat in missing_features:
+                        input_df[feat] = 0
+                
+                # Reorder columns to match expected order
+                input_df = input_df[expected_features]
             
             # Make prediction
             prediction = model.predict(input_df)[0]
@@ -390,3 +471,5 @@ with st.container():
 # Footer
 st.markdown("---")
 st.markdown("<p style='text-align: center; color: #999; font-size: 0.9rem;'>Flight Delays Prediction Model | Powered by Machine Learning</p>", unsafe_allow_html=True)
+
+# Last updated: 2025-12-11
