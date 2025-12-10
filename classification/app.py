@@ -199,116 +199,282 @@ if error or model is None:
 # Main app - Model loaded successfully
 st.success("✅ Model Ready")
 
-# Most important features only
-KEY_FEATURES = {
-    'age': {'type': 'number', 'label': 'Age', 'default': 52, 'min': 0, 'max': 120},
-    'sex': {'type': 'string', 'label': 'Sex', 'default': 'Male', 'options': ['Male', 'Female']},
-    'cp': {'type': 'string', 'label': 'Chest Pain Type', 'default': 'Typical Angina', 
-           'options': ['Typical Angina', 'Atypical Angina', 'Non-anginal Pain', 'Asymptomatic']},
-    'trestbps': {'type': 'number', 'label': 'Resting Blood Pressure (mmHg)', 'default': 125, 'min': 0, 'max': 300},
-    'chol': {'type': 'number', 'label': 'Cholesterol (mg/dl)', 'default': 212, 'min': 0, 'max': 600},
-    'thalach': {'type': 'number', 'label': 'Max Heart Rate (bpm)', 'default': 168, 'min': 0, 'max': 250},
-    'exang': {'type': 'string', 'label': 'Exercise Induced Angina', 'default': 'No', 'options': ['No', 'Yes']},
-    'oldpeak': {'type': 'number', 'label': 'ST Depression', 'default': 1.0, 'min': 0.0, 'max': 10.0, 'step': 0.1}
-}
-
 # Feature mappings
 CHEST_PAIN_MAP = {'Typical Angina': 0, 'Atypical Angina': 1, 'Non-anginal Pain': 2, 'Asymptomatic': 3}
 SEX_MAP = {'Male': 1, 'Female': 0}
 EXANG_MAP = {'Yes': 1, 'No': 0}
+FBS_MAP = {'No': 0, 'Yes': 1}
+RESTECG_MAP = {'Normal': 0, 'ST-T Abnormality': 1, 'LV Hypertrophy': 2}
+SLOPE_MAP = {'Upsloping': 0, 'Flat': 1, 'Downsloping': 2}
+THAL_MAP = {'Normal': 0, 'Fixed Defect': 1, 'Reversible Defect': 2, 'Other': 3}
 
-# All required features with defaults
-REQUIRED_FEATURES = ['age', 'sex', 'cp', 'trestbps', 'chol', 'fbs', 'restecg', 
-                     'thalach', 'exang', 'oldpeak', 'slope', 'ca', 'thal']
+# Feature name mapping: lowercase (app) -> possible model expected names
+# Multiple mappings to handle different dataset naming conventions
+FEATURE_NAME_MAP = {
+    'age': ['Age', 'age'],
+    'sex': ['Sex', 'sex'],
+    'cp': ['ChestPainType', 'ChestPain', 'cp', 'CP'],
+    'trestbps': ['RestingBP', 'RestingBloodPressure', 'trestbps', 'TRESTBPS'],
+    'chol': ['Cholesterol', 'chol', 'CHOL'],
+    'fbs': ['FastingBS', 'FastingBloodSugar', 'fbs', 'FBS'],
+    'restecg': ['RestingECG', 'RestingElectrocardiographic', 'restecg', 'RESTECG'],
+    'thalach': ['MaxHR', 'MaximumHeartRate', 'thalach', 'THALACH'],
+    'exang': ['ExerciseAngina', 'ExerciseInducedAngina', 'exang', 'EXANG'],
+    'oldpeak': ['Oldpeak', 'STDepression', 'oldpeak', 'OLDPEAK'],
+    'slope': ['ST_Slope', 'STSlope', 'Slope', 'slope'],
+    'ca': ['MajorVessels', 'NumberMajorVessels', 'ca', 'CA'],
+    'thal': ['Thalassemia', 'Thal', 'thal', 'THAL']
+}
+
+def map_feature_names(input_values, model_expected_features):
+    """Map app feature names to model's expected feature names."""
+    mapped_values = {}
+    
+    # Create a lookup for case-insensitive matching
+    model_features_lower = {f.lower(): f for f in model_expected_features}
+    
+    # First, try direct mapping from FEATURE_NAME_MAP
+    for app_feature, possible_names in FEATURE_NAME_MAP.items():
+        if app_feature in input_values:
+            # Find matching feature name in model's expected features
+            found = False
+            for model_name in possible_names:
+                if model_name in model_expected_features:
+                    mapped_values[model_name] = input_values[app_feature]
+                    found = True
+                    break
+                # Try case-insensitive match
+                elif model_name.lower() in model_features_lower:
+                    mapped_values[model_features_lower[model_name.lower()]] = input_values[app_feature]
+                    found = True
+                    break
+            
+            # If still not found, try direct case-insensitive match
+            if not found:
+                app_feature_lower = app_feature.lower()
+                if app_feature_lower in model_features_lower:
+                    mapped_values[model_features_lower[app_feature_lower]] = input_values[app_feature]
+    
+    # Also try direct case-insensitive matching for any remaining features
+    for app_feature, value in input_values.items():
+        app_feature_lower = app_feature.lower()
+        if app_feature_lower in model_features_lower and model_features_lower[app_feature_lower] not in mapped_values:
+            mapped_values[model_features_lower[app_feature_lower]] = value
+    
+    return mapped_values
+
+# All required features (using lowercase for app input, will be mapped to model names)
+REQUIRED_FEATURES_APP = ['age', 'sex', 'cp', 'trestbps', 'chol', 'fbs', 'restecg', 
+                         'thalach', 'exang', 'oldpeak', 'slope', 'ca', 'thal']
 
 # Modern UI
 st.markdown("<h1>❤️ Heart Disease Prediction</h1>", unsafe_allow_html=True)
 st.markdown("<p style='font-size: 1.1rem; color: #666; text-align: center; margin-bottom: 2rem;'>Enter patient information to predict heart disease risk</p>", unsafe_allow_html=True)
 
-# Input form
+# Input form - ALL ORIGINAL FEATURES
 with st.container():
     input_values = {}
     
+    st.markdown("### 👤 Patient Demographics")
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("### 👤 Patient Demographics")
         age = st.number_input("**Age** (years)", min_value=0, max_value=120, value=52, step=1)
         input_values['age'] = age
         
         sex_str = st.selectbox("**Sex**", options=['Male', 'Female'], index=0)
         input_values['sex'] = SEX_MAP[sex_str]
-        
-        st.markdown("### 💓 Vital Signs")
+    
+    st.markdown("---")
+    st.markdown("### 💓 Vital Signs & Blood Tests")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
         trestbps = st.number_input("**Resting Blood Pressure** (mmHg)", min_value=0, max_value=300, value=125, step=1)
         input_values['trestbps'] = trestbps
         
         chol = st.number_input("**Cholesterol** (mg/dl)", min_value=0, max_value=600, value=212, step=1)
         input_values['chol'] = chol
+    
+    with col2:
+        fbs_str = st.selectbox("**Fasting Blood Sugar > 120**", options=['No', 'Yes'], index=0)
+        input_values['fbs'] = FBS_MAP[fbs_str]
         
         thalach = st.number_input("**Max Heart Rate** (bpm)", min_value=0, max_value=250, value=168, step=1)
         input_values['thalach'] = thalach
     
-    with col2:
-        st.markdown("### 🩺 Symptoms & Tests")
+    st.markdown("---")
+    st.markdown("### 🩺 Symptoms & Medical Tests")
+    col1, col2 = st.columns(2)
+    
+    with col1:
         cp_str = st.selectbox("**Chest Pain Type**", 
                               options=['Typical Angina', 'Atypical Angina', 'Non-anginal Pain', 'Asymptomatic'],
                               index=0)
         input_values['cp'] = CHEST_PAIN_MAP[cp_str]
         
-        fbs = st.selectbox("**Fasting Blood Sugar > 120**", options=[0, 1], format_func=lambda x: "No" if x == 0 else "Yes", index=0)
-        input_values['fbs'] = fbs
-        
-        restecg = st.selectbox("**Resting ECG**", 
-                               options=[0, 1, 2],
-                               format_func=lambda x: ["Normal", "ST-T Abnormality", "LV Hypertrophy"][x],
-                               index=1)
-        input_values['restecg'] = restecg
+        restecg_str = st.selectbox("**Resting ECG**", 
+                                   options=['Normal', 'ST-T Abnormality', 'LV Hypertrophy'],
+                                   index=1)
+        input_values['restecg'] = RESTECG_MAP[restecg_str]
         
         exang_str = st.selectbox("**Exercise Induced Angina**", options=['No', 'Yes'], index=0)
         input_values['exang'] = EXANG_MAP[exang_str]
-        
+    
+    with col2:
         oldpeak = st.number_input("**ST Depression**", min_value=0.0, max_value=10.0, value=1.0, step=0.1)
         input_values['oldpeak'] = oldpeak
-    
-    # Defaults for other required features
-    input_values['slope'] = 2
-    input_values['ca'] = 0
-    input_values['thal'] = 3
+        
+        slope_str = st.selectbox("**ST Slope**", 
+                                options=['Upsloping', 'Flat', 'Downsloping'],
+                                index=1)
+        input_values['slope'] = SLOPE_MAP[slope_str]
+        
+        ca = st.number_input("**Number of Major Vessels** (0-3)", min_value=0, max_value=3, value=0, step=1)
+        input_values['ca'] = ca
+        
+        thal_str = st.selectbox("**Thalassemia**", 
+                               options=['Normal', 'Fixed Defect', 'Reversible Defect', 'Other'],
+                               index=2)
+        input_values['thal'] = THAL_MAP[thal_str]
     
     if st.button("🔮 Predict Heart Disease Risk", type="primary", use_container_width=True):
         try:
-            # Create input dataframe
-            input_data = pd.DataFrame([input_values])[REQUIRED_FEATURES]
+            # Get model's expected feature names
+            if hasattr(model, 'feature_names_in_'):
+                expected_features = [str(f) for f in model.feature_names_in_]  # Ensure all are strings
+            else:
+                st.error("❌ Model does not have feature_names_in_ attribute. Cannot determine expected features.")
+                st.stop()
             
-            # Apply feature engineering
+            # Map input values to ORIGINAL feature names (before one-hot encoding)
+            # These are the features that will be fed into the feature engineering pipeline
+            original_feature_mapping = {
+                'age': 'Age',
+                'sex': 'Sex',
+                'trestbps': 'RestingBP',
+                'chol': 'Cholesterol',
+                'fbs': 'FastingBS',
+                'thalach': 'MaxHR',
+                'exang': 'ExerciseAngina',
+                'oldpeak': 'Oldpeak',
+                'cp': 'ChestPainType',  # Will be one-hot encoded
+                'restecg': 'RestingECG',  # Will be one-hot encoded
+                'slope': 'ST_Slope',  # Will be one-hot encoded
+                'ca': 'MajorVessel',  # Note: singular, not plural - but might be dropped/encoded
+                'thal': 'Thalassemia'  # Might be one-hot encoded
+            }
+            
+            # Create DataFrame with ORIGINAL feature names (before feature engineering)
+            original_input_data = {}
+            for app_key, app_value in input_values.items():
+                if app_key in original_feature_mapping:
+                    original_input_data[original_feature_mapping[app_key]] = app_value
+            
+            # Create DataFrame with original features
+            input_data = pd.DataFrame([original_input_data])
+            
+            # Check if MajorVessel is expected by the model - if not, don't include it
+            # The model might have been trained without MajorVessel or it was transformed
+            if 'MajorVessel' in input_data.columns and 'MajorVessel' not in expected_features:
+                # Check if any MajorVessel-related features are expected (like MajorVessel_0, MajorVessel_1, etc.)
+                majorvessel_features = [f for f in expected_features if 'MajorVessel' in f or 'Major' in f]
+                if not majorvessel_features:
+                    # MajorVessel is not expected at all - remove it
+                    input_data = input_data.drop(columns=['MajorVessel'], errors='ignore')
+            
+            # Ensure all column names are strings
+            input_data.columns = input_data.columns.astype(str)
+            
+            # Apply feature engineering EXACTLY as done during training
+            # Step 1: Encode categorical features (this creates one-hot encoded features)
             feature_engineer = FeatureEngineer(target_column=None)
-            if scaler is not None:
-                feature_engineer.scaler = scaler
             if encoders is not None:
                 feature_engineer.encoders = encoders
             
-            # Encode categorical
-            input_data = feature_engineer.encode_categorical(input_data, method='auto')
+            # Explicitly specify which columns should be one-hot encoded
+            # These are categorical features that need one-hot encoding
+            categorical_cols_to_encode = []
+            for col in input_data.columns:
+                if col in ['ChestPainType', 'RestingECG', 'ST_Slope', 'Thalassemia']:
+                    categorical_cols_to_encode.append(col)
             
-            # Scale features
-            if feature_engineer.scaler is None:
-                st.error("❌ Preprocessing scaler not found.")
-                st.stop()
+            # Convert categorical columns to object type so they're detected as categorical
+            for col in categorical_cols_to_encode:
+                if col in input_data.columns:
+                    input_data[col] = input_data[col].astype(str)
             
-            input_data = feature_engineer.scale_features(input_data, method='standard', fit=False)
+            # Apply one-hot encoding explicitly for these categorical columns
+            # Use pandas get_dummies directly to avoid the unique_count issue
+            if categorical_cols_to_encode:
+                for col in categorical_cols_to_encode:
+                    if col in input_data.columns:
+                        # Create one-hot encoded columns
+                        dummies = pd.get_dummies(input_data[col], prefix=col, drop_first=True)
+                        # Drop the original column and add one-hot encoded columns
+                        input_data = pd.concat([input_data.drop(columns=[col]), dummies], axis=1)
             
-            # Create interaction features
-            input_data = feature_engineer.create_interaction_features(input_data, max_interactions=10)
+            # Ensure all column names are strings after encoding
+            input_data.columns = input_data.columns.astype(str)
             
-            # Select expected features
-            expected_features = model.feature_names_in_
-            missing_features = [f for f in expected_features if f not in input_data.columns]
-            if missing_features:
-                st.error(f"❌ Missing features: {', '.join(missing_features)}")
-                st.stop()
+            # Verify that original categorical columns were removed
+            categorical_originals = ['ChestPainType', 'RestingECG', 'ST_Slope', 'Thalassemia']
+            still_present = [col for col in categorical_originals if col in input_data.columns]
+            if still_present:
+                # Manually remove original categorical columns if they still exist
+                input_data = input_data.drop(columns=still_present, errors='ignore')
             
-            input_data = input_data[expected_features]
+            # Remove MajorVessel if it's not expected by the model
+            # The model might have been trained without MajorVessel or it was transformed/removed
+            if 'MajorVessel' in input_data.columns:
+                # Check if MajorVessel or any MajorVessel-related features are expected
+                majorvessel_expected = any('MajorVessel' in f or 'Major' in f for f in expected_features)
+                if not majorvessel_expected:
+                    # MajorVessel is not expected - remove it
+                    input_data = input_data.drop(columns=['MajorVessel'], errors='ignore')
+            
+            # Ensure all column names are still strings
+            input_data.columns = input_data.columns.astype(str)
+            
+            # Step 2: Scale features (using the fitted scaler)
+            if scaler is not None:
+                feature_engineer.scaler = scaler
+                # Scale features - this preserves all columns and only scales numerical ones
+                input_data = feature_engineer.scale_features(input_data, method='standard', fit=False)
+            else:
+                st.warning("⚠️ Scaler not found, but continuing with prediction...")
+            
+            # Ensure column names are still strings after scaling
+            input_data.columns = input_data.columns.astype(str)
+            
+            # Convert expected features to strings
+            expected_features_str = [str(f) for f in expected_features]
+            
+            # Create interaction features (if model expects them)
+            if hasattr(model, 'feature_names_in_'):
+                # Check if model expects interaction features
+                interaction_features = [f for f in expected_features if '_x_' in f or '*' in f]
+                if interaction_features:
+                    input_data = feature_engineer.create_interaction_features(input_data, max_interactions=10)
+                    # Ensure column names are still strings after interaction features
+                    input_data.columns = input_data.columns.astype(str)
+            
+            # Final check: ensure all expected features are present and in correct order
+            if hasattr(model, 'feature_names_in_'):
+                # Convert expected_features to strings for comparison
+                expected_features_str = [str(f) for f in expected_features]
+                missing_features = [f for f in expected_features_str if f not in input_data.columns]
+                
+                if missing_features:
+                    # Add missing features with default value 0
+                    for feat in missing_features:
+                        input_data[feat] = 0
+                
+                # Reorder columns to match expected order
+                input_data = input_data[expected_features_str]
+            
+            # Final safety check: ensure all column names are strings before prediction
+            input_data.columns = input_data.columns.astype(str)
             
             # Make prediction
             prediction = model.predict(input_data)[0]
@@ -364,3 +530,5 @@ st.markdown("""
     <small>⚠️ This tool is for educational purposes only. Always consult healthcare professionals for medical decisions.</small>
 </p>
 """, unsafe_allow_html=True)
+
+# TODO: Review implementation
