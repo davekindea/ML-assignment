@@ -40,7 +40,7 @@ def main():
     print("\n[STEP 2] DATA COLLECTION")
     print("-" * 70)
     
-    # TODO: Update these paths with your actual dataset
+    # TODO: Review: Update these paths with your actual dataset
     data_file = input("Enter path to your dataset (or press Enter to use default): ").strip()
     if not data_file:
         # Look for CSV files in raw data directory
